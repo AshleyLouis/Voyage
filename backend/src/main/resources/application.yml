@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: travel-system
+
+logging:
+  level:
+    com.example.travel: info
