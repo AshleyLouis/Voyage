@@ -32,7 +32,11 @@ public class GroupPlanService {
                 budget,
                 interests,
                 pace,
-                request.constraints()
+                request.constraints(),
+                "medium",
+                true,
+                "medium",
+                "comfort"
         ).normalize();
         return planService.generate(demand);
     }
@@ -72,6 +76,6 @@ public class GroupPlanService {
                 .filter(member -> member.budgetPreference() != null)
                 .mapToInt(GroupMemberRequest::budgetPreference)
                 .average()
-                .orElse(1800);
+                .orElse(1600);
     }
 }

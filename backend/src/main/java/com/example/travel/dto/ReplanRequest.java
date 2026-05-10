@@ -6,6 +6,7 @@ public record ReplanRequest(
         Integer versionNo,
         Integer newBudget,
         String newPace,
+        String adjustmentType,
         Integer removeSpotId,
         Integer mustSpotId
 ) {

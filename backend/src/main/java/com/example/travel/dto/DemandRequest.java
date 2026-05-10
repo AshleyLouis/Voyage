@@ -14,17 +14,25 @@ public record DemandRequest(
         @Min(300) Integer budget,
         List<String> interests,
         String pace,
-        String constraints
+        String constraints,
+        String walkingTolerance,
+        Boolean needNoonRest,
+        String crowdSensitivity,
+        String comfortPreference
 ) {
     public Demand toDemand() {
         return new Demand(
                 rawText,
                 destination,
                 days == null ? 3 : days,
-                budget == null ? 1800 : budget,
+                budget == null ? 1600 : budget,
                 interests,
                 PaceType.from(pace),
-                constraints
+                constraints,
+                walkingTolerance,
+                Boolean.TRUE.equals(needNoonRest),
+                crowdSensitivity,
+                comfortPreference
         ).normalize();
     }
 }

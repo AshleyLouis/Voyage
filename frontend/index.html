@@ -3,247 +3,66 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Voyage 智能旅行定制</title>
+    <title>Voyage 成都旅行规划</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body data-page="home">
     <header class="site-header">
-      <a class="brand" href="#home" aria-label="Voyage 首页">
+      <a class="brand" href="./index.html" aria-label="Voyage 首页">
         <span>V</span>
         <strong>Voyage</strong>
       </a>
       <nav class="site-nav" aria-label="主导航">
-        <a href="#destinations">目的地</a>
-        <a href="#planner">定制行程</a>
-        <a href="#plan">我的方案</a>
-        <a href="#reviews">用户评价</a>
+        <a href="./planner.html">智能规划</a>
+        <a href="./result.html">路线总览</a>
+        <a href="./adjust.html">动态调整</a>
       </nav>
-      <a class="header-action" href="#planner">开始规划</a>
+      <a class="header-action" href="./planner.html">开始规划</a>
     </header>
 
     <main>
-      <section class="hero" id="home">
+      <section class="hero landing-hero">
         <div class="hero-media" aria-hidden="true"></div>
         <div class="hero-content">
-          <p class="eyebrow">Personal Travel Concierge</p>
-          <h1>把想去的地方，变成刚刚好的旅程。</h1>
-          <p>
-            输入预算、时间、兴趣和出行节奏，Voyage 为你生成可调整的个性化路线，
-            从景点选择到每日安排都替你打磨好。
-          </p>
-          <form class="hero-search" id="hero-search">
-            <label>
-              <span>目的地</span>
-              <input id="hero-destination" type="text" value="北京" />
-            </label>
-            <label>
-              <span>出行天数</span>
-              <input id="hero-days" type="number" min="1" max="7" value="3" />
-            </label>
-            <label>
-              <span>预算</span>
-              <input id="hero-budget" type="number" min="300" step="100" value="1800" />
-            </label>
-            <button type="submit">生成路线</button>
-          </form>
-        </div>
-      </section>
-
-      <section class="trust-strip" aria-label="服务亮点">
-        <div><strong>12k+</strong><span>行程方案生成</span></div>
-        <div><strong>4.8/5</strong><span>用户平均评分</span></div>
-        <div><strong>30 秒</strong><span>完成路线初稿</span></div>
-        <div><strong>24h</strong><span>随时调整方案</span></div>
-      </section>
-
-      <section class="section" id="destinations">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Explore</p>
-            <h2>热门目的地灵感</h2>
-          </div>
-          <p>按城市、兴趣和旅行节奏浏览推荐景点，先找到这次旅行的主旋律。</p>
-        </div>
-
-        <div class="filter-row">
-          <input id="spot-search" type="search" placeholder="搜索景点、城市或兴趣标签" />
-          <select id="city-filter">
-            <option value="all">全部城市</option>
-          </select>
-          <select id="category-filter">
-            <option value="all">全部类型</option>
-          </select>
-        </div>
-
-        <div class="destination-grid" id="destination-grid"></div>
-      </section>
-
-      <section class="planner-section" id="planner">
-        <div class="planner-copy">
-          <p class="eyebrow">Tailor-Made Plan</p>
-          <h2>告诉我们你想怎么玩。</h2>
-          <p>
-            你可以直接写一句话，也可以填写偏好。系统会把你的需求整理成路线方案，
-            后续还能删除景点、调整预算或切换旅行节奏。
-          </p>
-          <div class="planner-note">
-            <strong>适合这些场景</strong>
-            <span>第一次去一个城市、朋友结伴出游、预算有限、想兼顾美食和景点。</span>
-          </div>
-        </div>
-
-        <form class="planner-card" id="planner-form">
-          <label class="full">
-            旅行愿望
-            <textarea id="rawText" rows="4" placeholder="例如：我想去北京玩 3 天，预算 1800，喜欢历史、美食和拍照，希望不要太累。"></textarea>
-          </label>
-
-          <div class="form-grid">
-            <label>
-              目的地
-              <input id="destination" type="text" value="北京" />
-            </label>
-            <label>
-              天数
-              <input id="days" type="number" min="1" max="7" value="3" />
-            </label>
-            <label>
-              预算
-              <input id="budget" type="number" min="300" step="100" value="1800" />
-            </label>
-            <label>
-              节奏
-              <select id="pace">
-                <option value="balanced">舒服均衡</option>
-                <option value="relaxed">慢慢逛</option>
-                <option value="compact">多玩一些</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="full">
-            <span class="field-title">兴趣偏好</span>
-            <div class="chip-list" id="interest-chips"></div>
-          </div>
-
-          <label class="full">
-            特别想安排的内容
-            <input id="constraints" type="text" placeholder="比如：必须去故宫、想安排夜景、少走路" />
-          </label>
-
-          <div class="form-actions">
-            <button type="button" class="secondary-btn" id="load-demo">试试示例</button>
-            <button type="button" class="secondary-btn" id="parse-demand">智能填写</button>
-            <button type="submit" class="primary-btn">生成我的路线</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="section plan-section" id="plan">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Your Trip</p>
-            <h2>我的旅行方案</h2>
-          </div>
-          <p id="plan-status">还没有生成方案，填写上面的偏好后即可预览。</p>
-        </div>
-
-        <div class="plan-dashboard">
-          <aside class="summary-card" id="summary-card">
-            <h3>方案概览</h3>
-            <div class="empty-state">等待生成你的第一份路线。</div>
-          </aside>
-
-          <div class="result-panel">
-            <div class="tabs" role="tablist" aria-label="方案视图">
-              <button class="tab active" data-tab="route" type="button">每日行程</button>
-              <button class="tab" data-tab="spots" type="button">推荐景点</button>
-              <button class="tab" data-tab="adjust" type="button">调整方案</button>
-            </div>
-            <div class="tab-panel active" id="route-panel"></div>
-            <div class="tab-panel" id="spots-panel"></div>
-            <div class="tab-panel" id="adjust-panel">
-              <form class="adjust-card" id="replan-form">
-                <label>
-                  新预算
-                  <input id="new-budget" type="number" min="300" step="100" value="1600" />
-                </label>
-                <label>
-                  新节奏
-                  <select id="new-pace">
-                    <option value="balanced">舒服均衡</option>
-                    <option value="relaxed">慢慢逛</option>
-                    <option value="compact">多玩一些</option>
-                  </select>
-                </label>
-                <label>
-                  不想去
-                  <select id="remove-spot">
-                    <option value="">不删除景点</option>
-                  </select>
-                </label>
-                <label>
-                  一定要去
-                  <select id="must-spot">
-                    <option value="">不添加景点</option>
-                  </select>
-                </label>
-                <button class="primary-btn" type="submit">更新路线</button>
-              </form>
-              <div class="version-list" id="version-list"></div>
-            </div>
+          <p class="eyebrow">Chengdu Travel Companion</p>
+          <h1>帮你规划一条不那么累的成都路线</h1>
+          <p>根据兴趣、预算和体力节奏安排景点与中途休息点。系统会在行程偏赶时主动帮你放慢一点。</p>
+          <div class="hero-actions">
+            <a class="primary-link" href="./planner.html">规划我的路线</a>
+            <a class="ghost-link" href="./result.html">查看路线示例</a>
           </div>
         </div>
       </section>
 
-      <section class="experience-band">
+      <section class="feature-strip">
+        <article>
+          <strong>地图主导</strong>
+          <span>路线、休息点和每日安排会落在同一张成都旅行地图上。</span>
+        </article>
+        <article>
+          <strong>会安排休息</strong>
+          <span>茶馆、公园、咖啡带会作为中途缓冲点，和景点一起进入路线。</span>
+        </article>
+        <article>
+          <strong>持续调整</strong>
+          <span>觉得太赶时，可以一键改轻松、减少步行或删掉某个地点。</span>
+        </article>
+      </section>
+
+      <section class="section split-showcase">
         <div>
-          <p class="eyebrow">Why Voyage</p>
-          <h2>像本地朋友一样安排路线。</h2>
+          <p class="eyebrow">Product Preview</p>
+          <h2>像地图产品一样规划，但更在意这一天会不会太累</h2>
+          <p>首页只负责建立期待。真正的搜索、地图和路线联动会进入规划页；结果页会先告诉你怎么玩，再解释为什么这样安排。</p>
+          <a class="secondary-link" href="./planner.html">进入智能规划页</a>
         </div>
-        <div class="feature-grid">
-          <article>
-            <strong>懂你的偏好</strong>
-            <span>把历史、美食、自然、拍照等兴趣转化为景点排序。</span>
-          </article>
-          <article>
-            <strong>不只是堆景点</strong>
-            <span>结合交通时间、游玩时长和开放时间，让路线更顺。</span>
-          </article>
-          <article>
-            <strong>能随时改</strong>
-            <span>预算变化、临时删景点、加入必去点，都能快速生成新方案。</span>
-          </article>
-        </div>
-      </section>
-
-      <section class="section" id="reviews">
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Reviews</p>
-            <h2>旅行者怎么说</h2>
-          </div>
-        </div>
-        <div class="review-grid">
-          <article>
-            <p>“三天北京路线安排得很顺，上午看展和历史景点，晚上留了胡同和夜游时间。”</p>
-            <strong>林同学 · 北京 3 日游</strong>
-          </article>
-          <article>
-            <p>“预算控制很清楚，临时删掉一个景点后还能自动补一个附近的地方。”</p>
-            <strong>陈先生 · 朋友结伴</strong>
-          </article>
-          <article>
-            <p>“不用自己反复查攻略，生成后再微调就能拿去做演示，也像真实产品。”</p>
-            <strong>周同学 · 课程项目展示</strong>
-          </article>
-        </div>
+        <div class="map-panel" id="home-map"></div>
       </section>
     </main>
 
     <footer class="site-footer">
       <strong>Voyage</strong>
-      <span>智能旅行定制，让每一次出发更轻松。</span>
+      <span>让路线好玩，也让旅途有喘息的空间。</span>
     </footer>
 
     <script src="./app.js"></script>

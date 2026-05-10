@@ -3,7 +3,7 @@ package com.example.travel.model;
 public enum PaceType {
     relaxed("轻松慢游", 6.0, 2, 0.78),
     balanced("舒适均衡", 8.0, 3, 1.0),
-    compact("多玩一些", 10.0, 4, 1.2);
+    compact("紧凑多玩", 9.5, 4, 1.18);
 
     private final String label;
     private final double maxHours;
@@ -37,8 +37,9 @@ public enum PaceType {
         if (value == null || value.isBlank()) {
             return balanced;
         }
+        String normalized = value.trim();
         for (PaceType paceType : values()) {
-            if (paceType.name().equalsIgnoreCase(value) || paceType.label.equals(value)) {
+            if (paceType.name().equalsIgnoreCase(normalized) || paceType.label.equals(normalized)) {
                 return paceType;
             }
         }
