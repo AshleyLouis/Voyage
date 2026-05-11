@@ -17,8 +17,8 @@
       <a class="header-action" href="./result.html">看结果</a>
     </header>
 
-    <main class="app-shell">
-      <aside class="control-panel">
+    <main class="app-shell resizable-container" id="resizable-section">
+      <aside class="control-panel left-panel" id="left-panel">
         <p class="eyebrow">Smart Planner</p>
         <h1>这趟成都想怎么走？</h1>
         <p>先输入愿望，再选择旅行风格。右侧地图会预览可能进入路线的景点和休息点。</p>
@@ -92,7 +92,12 @@
         </form>
       </aside>
 
-      <section class="map-workspace">
+      <!-- 拖动分割线 -->
+      <div class="resizer" id="resizer">
+        <div class="resizer-handle"></div>
+      </div>
+
+      <section class="map-workspace right-panel" id="right-panel">
         <div class="map-toolbar">
           <div>
             <p class="eyebrow">Map Workspace</p>

@@ -123,6 +123,7 @@ function initPlanner() {
   });
   $("#load-demo")?.addEventListener("click", loadDemo);
   $("#parse-demand")?.addEventListener("click", parseDemand);
+  initResizable(); // 初始化可调节分栏
 }
 
 function initResult() {
@@ -723,6 +724,62 @@ function time(minute) {
 
 function round(value) {
   return Math.round(value * 10) / 10;
+}
+
+// ===== 可调节分栏功能 =====
+function initResizable() {
+  const resizer = document.getElementById('resizer');
+  const leftPanel = document.getElementById('left-panel');
+  const container = document.getElementById('resizable-section');
+  
+  if (!resizer || !leftPanel || !container) return;
+  
+  let isResizing = false;
+  let startX = 0;
+  let startLeftWidth = 0;
+  
+  resizer.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    isResizing = true;
+    startX = e.clientX;
+    startLeftWidth = leftPanel.offsetWidth;
+    resizer.classList.add('resizing');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    
+    const overlay = document.createElement('div');
+    overlay.className = 'resizing-overlay';
+    overlay.id = 'resizing-overlay';
+    document.body.appendChild(overlay);
+  });
+  
+  document.addEventListener('mousemove', function(e) {
+    if (!isResizing) return;
+    const deltaX = e.clientX - startX;
+    let newWidth = startLeftWidth + deltaX;
+    const containerWidth = container.offsetWidth;
+    
+    if (newWidth < 300) newWidth = 300;
+    if (newWidth > containerWidth - 400) newWidth = containerWidth - 400;
+    
+    leftPanel.style.flex = '0 0 ' + newWidth + 'px';
+  });
+  
+  document.addEventListener('mouseup', function() {
+    if (!isResizing) return;
+    isResizing = false;
+    resizer.classList.remove('resizing');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    
+    const overlay = document.getElementById('resizing-overlay');
+    if (overlay) overlay.remove();
+  });
+  
+  // 双击重置
+  resizer.addEventListener('dblclick', function() {
+    leftPanel.style.flex = '0 0 430px';
+  });
 }
 
 init();

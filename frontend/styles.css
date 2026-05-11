@@ -49,6 +49,90 @@ a {
   text-decoration: none;
 }
 
+/* ===== 可调节分栏核心样式 ===== */
+
+/* 覆盖原有的 grid 布局，使用 flex */
+.app-shell.resizable-container {
+  display: flex !important;
+  grid-template-columns: none !important;
+  width: min(1440px, calc(100% - 32px));
+  margin: 96px auto 0;
+  min-height: calc(100vh - 116px);
+  gap: 0 !important;
+}
+
+.left-panel {
+  flex: 0 0 430px;
+  min-width: 300px;
+  max-width: 600px;
+  align-self: flex-start;
+  padding: 22px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(223, 233, 223, 0.95);
+  border-radius: 8px 0 0 8px;
+  box-shadow: var(--light-shadow);
+}
+
+.right-panel {
+  flex: 1 1 auto;
+  min-width: 400px;
+  position: sticky;
+  top: 96px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(223, 233, 223, 0.95);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  box-shadow: var(--light-shadow);
+}
+
+.resizer {
+  width: 8px;
+  background: #e8f0e8;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  border-top: 1px solid rgba(223, 233, 223, 0.95);
+  border-bottom: 1px solid rgba(223, 233, 223, 0.95);
+}
+
+.resizer:hover {
+  background: #d0e0d0;
+}
+
+.resizer.resizing {
+  background: var(--brand);
+}
+
+.resizer-handle {
+  width: 4px;
+  height: 40px;
+  background: #b8c8b8;
+  border-radius: 2px;
+  transition: background 0.2s;
+}
+
+.resizer:hover .resizer-handle,
+.resizer.resizing .resizer-handle {
+  background: var(--brand);
+}
+
+.resizing-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  cursor: col-resize;
+}
+
+/* ===== 原有样式保留 ===== */
+
 .site-header {
   position: fixed;
   z-index: 20;
@@ -547,7 +631,7 @@ a {
 label,
 .field-title {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   color: #2f4741;
   font-weight: 900;
 }
@@ -914,8 +998,36 @@ textarea:focus {
   color: var(--ink);
 }
 
+/* 响应式：小屏幕时隐藏分割线 */
 @media (max-width: 1100px) {
   .site-nav {
+    display: none;
+  }
+
+  .resizable-container {
+    flex-direction: column;
+  }
+  
+  .left-panel {
+    flex: none !important;
+    width: 100% !important;
+    max-width: none;
+    border-radius: 8px 8px 0 0;
+    min-width: auto;
+    position: static;
+  }
+  
+  .right-panel {
+    flex: none !important;
+    width: 100% !important;
+    min-width: auto;
+    border-radius: 0 0 8px 8px;
+    border-left: 1px solid rgba(223, 233, 223, 0.95);
+    border-top: none;
+    position: static;
+  }
+  
+  .resizer {
     display: none;
   }
 
