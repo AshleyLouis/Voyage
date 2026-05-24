@@ -2,9 +2,13 @@ package com.example.travel.repository;
 
 import com.example.travel.model.ScenicSpot;
 import jakarta.annotation.PostConstruct;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -16,34 +20,32 @@ import java.util.Set;
 
 @Repository
 public class SpotRepository {
+    private static final String FALLBACK_IMAGE =
+            "https://images.unsplash.com/photo-1530789253388-582c481c54b0?auto=format&fit=crop&w=900&q=80";
+
+    private final JdbcTemplate jdbcTemplate;
     private final List<ScenicSpot> spots = new ArrayList<>();
     private final Map<Integer, ScenicSpot> byId = new HashMap<>();
     private final Map<String, List<ScenicSpot>> byCity = new HashMap<>();
     private final Map<String, List<ScenicSpot>> byCategory = new HashMap<>();
     private final Map<String, List<ScenicSpot>> byTag = new HashMap<>();
-    private int[][] travelMinutes;
+    private int[][] travelMinutes = new int[0][0];
+
+    public SpotRepository(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
     @PostConstruct
     public void init() {
-        seedSpots();
+        spots.clear();
+        byId.clear();
+        byCity.clear();
+        byCategory.clear();
+        byTag.clear();
+
+        spots.addAll(loadSpotsFromDatabase());
         indexSpots();
-        travelMinutes = new int[][]{
-                {0, 12, 28, 18, 24, 20, 30, 32, 16, 36, 14, 26, 34, 22, 20},
-                {12, 0, 24, 14, 18, 16, 26, 28, 12, 34, 10, 24, 32, 18, 16},
-                {28, 24, 0, 22, 20, 28, 36, 18, 26, 42, 26, 30, 44, 16, 22},
-                {18, 14, 22, 0, 16, 14, 24, 26, 18, 32, 12, 20, 30, 16, 12},
-                {24, 18, 20, 16, 0, 12, 18, 22, 24, 30, 18, 16, 26, 14, 16},
-                {20, 16, 28, 14, 12, 0, 16, 24, 22, 26, 18, 14, 24, 18, 14},
-                {30, 26, 36, 24, 18, 16, 0, 28, 34, 20, 28, 18, 18, 24, 22},
-                {32, 28, 18, 26, 22, 24, 28, 0, 30, 38, 30, 26, 36, 20, 26},
-                {16, 12, 26, 18, 24, 22, 34, 30, 0, 40, 14, 28, 36, 22, 20},
-                {36, 34, 42, 32, 30, 26, 20, 38, 40, 0, 34, 22, 16, 32, 30},
-                {14, 10, 26, 12, 18, 18, 28, 30, 14, 34, 0, 22, 32, 18, 14},
-                {26, 24, 30, 20, 16, 14, 18, 26, 28, 22, 22, 0, 20, 18, 20},
-                {34, 32, 44, 30, 26, 24, 18, 36, 36, 16, 32, 20, 0, 30, 28},
-                {22, 18, 16, 16, 14, 18, 24, 20, 22, 32, 18, 18, 30, 0, 16},
-                {20, 16, 22, 12, 16, 14, 22, 26, 20, 30, 14, 20, 28, 16, 0}
-        };
+        travelMinutes = loadTravelMinutesFromDatabase();
     }
 
     public List<ScenicSpot> findAll() {
@@ -103,6 +105,109 @@ public class SpotRepository {
         return result;
     }
 
+    private List<ScenicSpot> loadSpotsFromDatabase() {
+        String sql = """
+                SELECT
+                  s.id,
+                  s.name,
+                  s.city,
+                  s.district,
+                  s.address,
+                  s.longitude,
+                  s.latitude,
+                  s.category,
+                  s.ticket_price,
+                  s.stay_duration,
+                  s.open_time,
+                  s.close_time,
+                  s.popularity,
+                  s.description,
+                  s.is_recovery_node,
+                  s.image_url,
+                  COALESCE(f.history_score, 0) AS history_score,
+                  COALESCE(f.food_score, 0) AS food_score,
+                  COALESCE(f.nature_score, 0) AS nature_score,
+                  COALESCE(f.shopping_score, 0) AS shopping_score,
+                  COALESCE(f.leisure_score, 0) AS leisure_score,
+                  COALESCE(f.photo_score, 0) AS photo_score,
+                  COALESCE(f.physical_load, 0) AS physical_load,
+                  COALESCE(f.cognitive_load, 0) AS cognitive_load,
+                  COALESCE(f.crowd_load, 0) AS crowd_load,
+                  COALESCE(f.queue_load, 0) AS queue_load,
+                  COALESCE(f.recovery_value, 0) AS recovery_value,
+                  f.tags
+                FROM scenic_spot s
+                LEFT JOIN scenic_feature f ON f.scenic_id = s.id
+                ORDER BY s.id
+                """;
+        return jdbcTemplate.query(sql, this::mapSpot);
+    }
+
+    private ScenicSpot mapSpot(ResultSet rs, int rowNum) throws SQLException {
+        double stayHours = Math.max(0.5, rs.getInt("stay_duration") / 60.0);
+        List<String> tags = parseTags(rs.getString("tags"));
+        if (tags.isEmpty()) {
+            tags = inferTags(rs);
+        }
+
+        return new ScenicSpot(
+                rs.getInt("id"),
+                rs.getString("name"),
+                rs.getString("city"),
+                nullToEmpty(rs.getString("district")),
+                nullToEmpty(rs.getString("address")),
+                rs.getDouble("longitude"),
+                rs.getDouble("latitude"),
+                nullToEmpty(rs.getString("category")),
+                rs.getBigDecimal("ticket_price").intValue(),
+                stayHours,
+                formatTime(rs.getString("open_time"), "09:00"),
+                formatTime(rs.getString("close_time"), "21:00"),
+                rs.getBigDecimal("popularity").intValue(),
+                tags,
+                nullToEmpty(rs.getString("description")),
+                blankToDefault(rs.getString("image_url"), FALLBACK_IMAGE),
+                rs.getInt("is_recovery_node") == 1,
+                rs.getDouble("physical_load"),
+                rs.getDouble("cognitive_load"),
+                rs.getDouble("crowd_load"),
+                rs.getDouble("queue_load"),
+                rs.getDouble("recovery_value")
+        );
+    }
+
+    private int[][] loadTravelMinutesFromDatabase() {
+        int size = byId.keySet().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int[][] matrix = new int[size][size];
+        for (int i = 0; i < size; i++) {
+            for (int j = 0; j < size; j++) {
+                if (i == j) {
+                    matrix[i][j] = 0;
+                    continue;
+                }
+                ScenicSpot from = byId.get(i + 1);
+                ScenicSpot to = byId.get(j + 1);
+                matrix[i][j] = from == null || to == null ? 45 : estimateTravelMinutes(from, to);
+            }
+        }
+
+        String sql = """
+                SELECT from_spot_id, to_spot_id, travel_time
+                FROM route_edge
+                WHERE from_spot_id IS NOT NULL AND to_spot_id IS NOT NULL
+                """;
+        jdbcTemplate.query(sql, rs -> {
+            int from = rs.getInt("from_spot_id");
+            int to = rs.getInt("to_spot_id");
+            int minutes = Math.max(1, rs.getInt("travel_time"));
+            if (from > 0 && to > 0 && from <= size && to <= size) {
+                matrix[from - 1][to - 1] = minutes;
+                matrix[to - 1][from - 1] = Math.min(matrix[to - 1][from - 1], minutes);
+            }
+        });
+        return matrix;
+    }
+
     private void indexSpots() {
         for (ScenicSpot spot : spots) {
             byId.put(spot.id(), spot);
@@ -123,51 +228,64 @@ public class SpotRepository {
         return value == null || value.isBlank() || "all".equalsIgnoreCase(value.trim());
     }
 
-    private void seedSpots() {
-        spots.add(spot(1, "武侯祠", "武侯区", "历史文化", 50, 2.5, 96, List.of("历史", "拍照"), false, 0.56, 0.62, 0.58, 0.38, 0.10, "三国文化核心景点，信息密度较高，适合作为成都人文路线起点。"));
-        spots.add(spot(2, "锦里古街", "武侯区", "美食街区", 0, 1.8, 91, List.of("美食", "购物", "拍照"), false, 0.42, 0.32, 0.78, 0.50, 0.28, "紧邻武侯祠，适合衔接小吃与夜景，但节假日拥挤感明显。"));
-        spots.add(spot(3, "杜甫草堂", "青羊区", "历史文化", 50, 2.5, 92, List.of("历史", "自然", "休闲"), false, 0.48, 0.64, 0.42, 0.22, 0.24, "诗意园林与文化展陈结合，节奏较舒缓。"));
-        spots.add(spot(4, "宽窄巷子", "青羊区", "历史街区", 0, 2.0, 89, List.of("历史", "美食", "购物", "拍照"), false, 0.40, 0.36, 0.82, 0.44, 0.18, "成都老街巷代表，适合拍照和休闲，但高峰时段人流压力较高。"));
-        spots.add(spot(5, "人民公园", "青羊区", "公园休闲", 0, 1.2, 86, List.of("休闲", "自然"), true, 0.16, 0.12, 0.28, 0.08, 0.88, "茶馆、湖边和慢节奏步道，是典型午间恢复节点。"));
-        spots.add(spot(6, "春熙路", "锦江区", "购物商圈", 0, 1.8, 94, List.of("购物", "美食", "拍照"), false, 0.42, 0.24, 0.86, 0.34, 0.16, "核心商圈，覆盖度高，但人流和停留诱惑会抬高疲劳风险。"));
-        spots.add(spot(7, "太古里", "锦江区", "休闲商圈", 0, 1.6, 93, List.of("购物", "美食", "休闲", "拍照"), true, 0.26, 0.18, 0.62, 0.20, 0.64, "开放式街区和餐饮密集，可作为购物路线中的轻恢复节点。"));
-        spots.add(spot(8, "成都博物馆", "青羊区", "博物馆", 0, 2.2, 88, List.of("历史", "拍照"), false, 0.28, 0.78, 0.48, 0.30, 0.12, "展陈信息密度高，适合文化偏好用户，但连续参观会增加认知负担。"));
-        spots.add(spot(9, "文殊院", "青羊区", "历史文化", 0, 1.8, 84, List.of("历史", "休闲", "美食"), false, 0.32, 0.46, 0.36, 0.16, 0.30, "寺院街区节奏平稳，周边小吃适合轻松衔接。"));
-        spots.add(spot(10, "东郊记忆", "成华区", "艺术街区", 0, 2.0, 82, List.of("拍照", "购物", "休闲"), false, 0.44, 0.38, 0.52, 0.18, 0.22, "工业风街区，适合年轻用户拍照和文创体验。"));
-        spots.add(spot(11, "鹤鸣茶社", "青羊区", "茶馆休息", 0, 0.9, 83, List.of("休闲", "美食"), true, 0.08, 0.08, 0.30, 0.06, 0.95, "人民公园内代表性茶社，适合在高负担节点后安排 40 分钟恢复。"));
-        spots.add(spot(12, "建设路小吃街", "成华区", "美食街区", 0, 1.5, 87, List.of("美食", "购物"), false, 0.36, 0.18, 0.76, 0.42, 0.20, "夜间美食选择丰富，适合收尾，但排队风险较高。"));
-        spots.add(spot(13, "望平街咖啡带", "锦江区", "咖啡休息", 0, 1.0, 80, List.of("休闲", "美食"), true, 0.10, 0.10, 0.34, 0.08, 0.86, "河边咖啡与轻餐集中，适合作为跨区移动后的恢复节点。"));
-        spots.add(spot(14, "青羊宫", "青羊区", "历史文化", 10, 1.5, 79, List.of("历史", "休闲"), false, 0.30, 0.42, 0.28, 0.10, 0.28, "文化密度适中，和杜甫草堂、人民公园可形成低压路线。"));
-        spots.add(spot(15, "奎星楼街", "青羊区", "美食街区", 0, 1.4, 85, List.of("美食", "休闲", "拍照"), false, 0.30, 0.20, 0.66, 0.34, 0.24, "餐饮与小店密集，适合晚间慢逛。"));
+    private List<String> parseTags(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split("[,，、\\s]+"))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
     }
 
-    private ScenicSpot spot(int id, String name, String district, String category, int ticketPrice, double stayDuration,
-                            int popularity, List<String> tags, boolean recoveryNode, double physicalLoad,
-                            double cognitiveLoad, double crowdLoad, double queueLoad, double recoveryValue,
-                            String description) {
-        return new ScenicSpot(
-                id,
-                name,
-                "成都",
-                district,
-                district + "核心旅游圈",
-                104.0 + id * 0.006,
-                30.6 + id * 0.004,
-                category,
-                ticketPrice,
-                stayDuration,
-                "09:00",
-                "21:00",
-                popularity,
-                tags,
-                description,
-                "https://images.unsplash.com/photo-1530789253388-582c481c54b0?auto=format&fit=crop&w=900&q=80",
-                recoveryNode,
-                physicalLoad,
-                cognitiveLoad,
-                crowdLoad,
-                queueLoad,
-                recoveryValue
-        );
+    private List<String> inferTags(ResultSet rs) throws SQLException {
+        List<String> tags = new ArrayList<>();
+        addTagIfPositive(tags, "历史", rs.getDouble("history_score"));
+        addTagIfPositive(tags, "美食", rs.getDouble("food_score"));
+        addTagIfPositive(tags, "自然", rs.getDouble("nature_score"));
+        addTagIfPositive(tags, "购物", rs.getDouble("shopping_score"));
+        addTagIfPositive(tags, "休闲", rs.getDouble("leisure_score"));
+        addTagIfPositive(tags, "拍照", rs.getDouble("photo_score"));
+        if (tags.isEmpty()) {
+            tags.add("休闲");
+        }
+        return tags;
+    }
+
+    private void addTagIfPositive(List<String> tags, String tag, double score) {
+        if (score >= 0.2) {
+            tags.add(tag);
+        }
+    }
+
+    private int estimateTravelMinutes(ScenicSpot from, ScenicSpot to) {
+        double distanceKm = haversineKm(from.latitude(), from.longitude(), to.latitude(), to.longitude());
+        return Math.max(8, (int) Math.round(distanceKm / 22.0 * 60 + 8));
+    }
+
+    private double haversineKm(double lat1, double lon1, double lat2, double lon2) {
+        double radius = 6371.0;
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    private String formatTime(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value.length() >= 5 ? value.substring(0, 5) : value;
+    }
+
+    private String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String blankToDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 }
