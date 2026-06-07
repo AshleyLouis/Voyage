@@ -37,11 +37,13 @@ public class PlanService {
     public TravelPlan generate(Demand demand, String parentPlanId, int versionNo, Integer mustSpotId, Integer removeSpotId) {
         Demand normalized = demand.normalize();
         List<ScoredSpot> selected = recallService.recall(normalized, mustSpotId, removeSpotId);
+        selected = applyBudgetLimit(selected, normalized, mustSpotId);
         int[][] dist = floyd.shortestDistances(spotRepository.travelMinutes());
         List<DayPlan> days = splitIntoDays(selected, normalized, dist);
         int totalTicket = selected.stream().mapToInt(item -> item.spot().ticketPrice()).sum();
-        int transportCost = days.stream().mapToInt(day -> (int) Math.round(day.travelMinutes() * 0.8)).sum();
-        int foodAndLocal = normalized.days() * 220;
+        int transportCost = days.stream().mapToInt(day -> (int) Math.round(day.travelMinutes() * transportCostRate(normalized))).sum();
+        int foodAndLocal = selected.stream().mapToInt(item -> estimatedLocalSpend(item.spot(), normalized)).sum()
+                + normalized.days() * dailyBaseSpend(normalized);
         int totalCost = totalTicket + transportCost + foodAndLocal;
         double totalHours = days.stream().mapToDouble(DayPlan::totalHours).sum();
         int match = selected.isEmpty()
@@ -102,6 +104,151 @@ public class PlanService {
         return days;
     }
 
+    private List<ScoredSpot> applyBudgetLimit(List<ScoredSpot> selected, Demand demand, Integer mustSpotId) {
+        int budgetLimit = demand.budget();
+        int fixedDailyCost = demand.days() * dailyBaseSpend(demand);
+        int softLimit = Math.max(80, budgetLimit - fixedDailyCost);
+        int selectedCountLimit = budgetSpotLimit(demand);
+        List<ScoredSpot> ordered = selected.stream()
+                .sorted(Comparator.comparingDouble(this::budgetValue).reversed())
+                .toList();
+
+        List<ScoredSpot> result = new ArrayList<>();
+        int estimatedCost = fixedDailyCost;
+        for (ScoredSpot item : ordered) {
+            boolean mustKeep = mustSpotId != null && item.spot().id() == mustSpotId;
+            int itemCost = item.spot().ticketPrice() + estimatedLocalSpend(item.spot(), demand) + estimatedMoveCost(demand);
+            boolean withinCount = result.size() < selectedCountLimit;
+            boolean withinBudget = estimatedCost + itemCost <= fixedDailyCost + softLimit;
+            if (mustKeep || (withinCount && withinBudget)) {
+                result.add(item);
+                estimatedCost += itemCost;
+            }
+        }
+
+        int minimum = Math.min(selected.size(), minimumSpotCount(demand));
+        for (ScoredSpot item : ordered) {
+            if (result.size() >= minimum) {
+                break;
+            }
+            if (result.stream().noneMatch(existing -> existing.spot().id() == item.spot().id())) {
+                result.add(item);
+            }
+        }
+        return result.stream()
+                .sorted(Comparator.comparingDouble(ScoredSpot::score).reversed())
+                .toList();
+    }
+
+    private int budgetSpotLimit(Demand demand) {
+        double dayBudget = demand.budget() / Math.max(demand.days(), 1.0);
+        if (demand.budget() < 500) {
+            return 1;
+        }
+        if (demand.budget() < 900) {
+            return Math.max(1, demand.days());
+        }
+        if (dayBudget < 450) {
+            return demand.days() * 2;
+        }
+        if (dayBudget < 700) {
+            return demand.days() * Math.min(3, demand.pace().getMaxSpots());
+        }
+        return Math.max(demand.days() * 2, demand.days() * demand.pace().getMaxSpots());
+    }
+
+    private int minimumSpotCount(Demand demand) {
+        if (demand.budget() < 500) {
+            return 1;
+        }
+        if (demand.budget() < 900) {
+            return Math.max(1, demand.days());
+        }
+        return Math.max(1, demand.days() * 2);
+    }
+
+    private double budgetValue(ScoredSpot item) {
+        int visitCost = item.spot().ticketPrice() + baseCategorySpend(item.spot());
+        return item.score() / Math.max(visitCost, 30);
+    }
+
+    private int estimatedLocalSpend(com.example.travel.model.ScenicSpot spot, Demand demand) {
+        double dayBudget = demand.budget() / Math.max(demand.days(), 1.0);
+        double factor = demand.budget() < 500 ? 0.35 : dayBudget < 300 ? 0.55 : dayBudget < 450 ? 0.72 : dayBudget < 700 ? 0.92 : dayBudget > 1200 ? 1.28 : 1.0;
+        return (int) Math.round(baseCategorySpend(spot) * factor);
+    }
+
+    private int baseCategorySpend(com.example.travel.model.ScenicSpot spot) {
+        String category = spot.category() == null ? "" : spot.category();
+        if (category.contains("美食")) {
+            return 100;
+        }
+        if (category.contains("茶馆") || category.contains("咖啡")) {
+            return 55;
+        }
+        if (category.contains("购物") || category.contains("商圈")) {
+            return 120;
+        }
+        if (category.contains("博物馆") || category.contains("历史")) {
+            return 45;
+        }
+        if (category.contains("公园") || category.contains("休闲")) {
+            return 30;
+        }
+        return 35;
+    }
+
+    private int dailyBaseSpend(Demand demand) {
+        double dayBudget = demand.budget() / Math.max(demand.days(), 1.0);
+        if (demand.budget() < 500) {
+            return 35;
+        }
+        if (dayBudget < 300) {
+            return 65;
+        }
+        if (dayBudget < 450) {
+            return 70;
+        }
+        if (dayBudget < 700) {
+            return 110;
+        }
+        if (dayBudget > 1200) {
+            return 190;
+        }
+        return 140;
+    }
+
+    private int estimatedMoveCost(Demand demand) {
+        double dayBudget = demand.budget() / Math.max(demand.days(), 1.0);
+        if (demand.budget() < 500) {
+            return 8;
+        }
+        if (dayBudget < 300) {
+            return 12;
+        }
+        return dayBudget < 450 ? 18 : 32;
+    }
+
+    private double transportCostRate(Demand demand) {
+        double dayBudget = demand.budget() / Math.max(demand.days(), 1.0);
+        if (demand.budget() < 500) {
+            return 0.20;
+        }
+        if (dayBudget < 300) {
+            return 0.35;
+        }
+        if (dayBudget < 450) {
+            return 0.45;
+        }
+        if (dayBudget < 700) {
+            return 0.62;
+        }
+        if (dayBudget > 1200) {
+            return 0.95;
+        }
+        return 0.78;
+    }
+
     private List<String> buildExplanations(Demand demand, List<ScoredSpot> selected, List<DayPlan> days, int totalCost) {
         List<String> result = new ArrayList<>();
         result.add("地图范围固定为成都主城区核心旅游圈，先通过城市与兴趣标签哈希索引召回候选景点。");
@@ -109,7 +256,7 @@ public class PlanService {
         result.add("路线顺序使用 Floyd-Warshall 交通代价矩阵与 TSP 状态压缩 DP，随后进入动态节奏控制。");
         long recoveryCount = days.stream().flatMap(day -> day.nodes().stream()).filter(node -> node.isRecoveryNode()).count();
         result.add("节奏引擎模拟 RELAXED、STABLE、FATIGUED、OVERLOADED 四种状态，本次共插入 " + recoveryCount + " 个恢复节点。");
-        result.add("当前方案估算费用约 " + totalCost + " 元，用户预算为 " + demand.budget() + " 元。");
+        result.add("当前方案估算费用约 " + totalCost + " 元，用户预算为 " + demand.budget() + " 元，已按预算控制景点数量、餐饮消费和市内移动方式。");
         if (!selected.isEmpty()) {
             result.add("最高匹配景点是 " + selected.get(0).spot().name() + "，原因：" + selected.get(0).reason());
         }

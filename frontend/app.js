@@ -95,6 +95,8 @@ async function init() {
   if (page === "result") initResult();
   if (page === "detail") initDetail();
   if (page === "adjust") initAdjust();
+  if (page === "map") initMapDemo();
+  if (page === "diary") initDiary();
 }
 
 async function loadSpots() {
@@ -140,6 +142,662 @@ function initAdjust() {
   ensurePlan();
   bindSegmented();
   renderAdjustPage();
+}
+
+async function initDiary() {
+  await loadDiaryStats();
+  await loadDiaries();
+  $("#diary-search")?.addEventListener("click", loadDiaries);
+  $("#diary-recommend")?.addEventListener("click", loadRecommendedDiaries);
+  $("#diary-title-search")?.addEventListener("click", loadExactTitleDiaries);
+  $("#diary-fulltext-search")?.addEventListener("click", loadFullTextDiaries);
+  $("#aigc-generate")?.addEventListener("click", generateStandaloneAnimation);
+  $("#aigc-image-file")?.addEventListener("change", previewUploadedAigcImage);
+  $("#diary-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await createDiary();
+  });
+}
+
+async function loadDiaryStats() {
+  const stats = await getJson(`${API_BASE}/diaries/stats`, null);
+  const container = $("#diary-stats");
+  if (!container) return;
+  if (!stats) {
+    container.innerHTML = `<p class="muted-text">后端启动后可查看日记统计。</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <div><span>日记数</span><strong>${stats.diaryCount}</strong></div>
+    <div><span>浏览量</span><strong>${stats.totalViews}</strong></div>
+    <div><span>平均评分</span><strong>${round(stats.averageRating)}</strong></div>
+    <div><span>压缩存储</span><strong>${stats.compressedCount}</strong></div>
+  `;
+}
+
+async function loadDiaries() {
+  const destination = encodeURIComponent($("#diary-destination")?.value.trim() || "");
+  const keyword = encodeURIComponent($("#diary-keyword")?.value.trim() || "");
+  const sort = $("#diary-sort")?.value || "hot";
+  const diaries = await getJson(`${API_BASE}/diaries?destination=${destination}&keyword=${keyword}&sort=${sort}&limit=30`, []);
+  renderDiaries(diaries);
+  await loadDiaryStats();
+}
+
+async function loadRecommendedDiaries() {
+  const interest = encodeURIComponent($("#diary-interest")?.value || "");
+  const destination = encodeURIComponent($("#diary-destination")?.value.trim() || "");
+  const diaries = await getJson(`${API_BASE}/diaries/recommend?interest=${interest}&destination=${destination}&limit=10`, []);
+  renderDiaries(diaries);
+}
+
+async function loadExactTitleDiaries() {
+  const title = encodeURIComponent($("#diary-exact-title")?.value.trim() || "");
+  if (!title) return;
+  const diaries = await getJson(`${API_BASE}/diaries/exact-title?title=${title}&limit=20`, []);
+  renderDiaries(diaries);
+}
+
+async function loadFullTextDiaries() {
+  const keyword = encodeURIComponent($("#diary-fulltext-keyword")?.value.trim() || $("#diary-keyword")?.value.trim() || "");
+  if (!keyword) return;
+  const sort = $("#diary-sort")?.value || "hot";
+  const diaries = await getJson(`${API_BASE}/diaries/fulltext?keyword=${keyword}&sort=${sort}&limit=30`, []);
+  renderDiaries(diaries);
+}
+
+async function createDiary() {
+  const payload = {
+    title: $("#diary-title").value.trim(),
+    destination: $("#diary-form-destination").value.trim(),
+    authorName: $("#diary-author").value.trim(),
+    content: $("#diary-content").value.trim(),
+    imageUrl: $("#diary-image").value.trim(),
+    videoUrl: "",
+    interestTags: $("#diary-tags").value.trim(),
+  };
+  if (!payload.title || !payload.destination || !payload.content) return;
+  await postJson(`${API_BASE}/diaries`, payload);
+  $("#diary-keyword").value = "";
+  $("#diary-destination").value = payload.destination;
+  await loadDiaries();
+}
+
+function renderDiaries(diaries) {
+  const container = $("#diary-list");
+  if (!container) return;
+  if (!diaries.length) {
+    container.innerHTML = `<article class="insight-card"><p class="muted-text">没有找到日记，可以换个关键词或新写一篇。</p></article>`;
+    return;
+  }
+  container.innerHTML = diaries.map(renderDiaryCard).join("");
+  $$(".diary-card").forEach((card) => {
+    card.addEventListener("click", async (event) => {
+      const detailButton = event.target.closest("[data-open-detail]");
+      if (event.target.closest("button") && !detailButton) return;
+      const id = card.dataset.id;
+      const diary = await getJson(`${API_BASE}/diaries/${id}`, null);
+      if (diary) {
+        showDiaryDetail(diary);
+        await loadDiaryStats();
+      }
+    });
+  });
+  $$(".rate-buttons button[data-rating]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.closest(".diary-card").dataset.id;
+      const rating = button.dataset.rating;
+      const diary = await postJson(`${API_BASE}/diaries/${id}/rate?rating=${rating}`, {});
+      if (diary?.success) {
+        await loadDiaries();
+      }
+    });
+  });
+  $$(".rate-buttons button[data-open-animation]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.closest(".diary-card").dataset.id;
+      const diary = await getJson(`${API_BASE}/diaries/${id}`, null);
+      if (diary) showDiaryAnimation(diary);
+    });
+  });
+}
+
+function renderDiaryCard(diary) {
+  const image = diary.imageUrl || "https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=900&q=80";
+  return `
+    <article class="diary-card" data-id="${diary.id}">
+      <div class="diary-image" style="background-image:url('${image}')"></div>
+      <div class="diary-body">
+        <div class="diary-head">
+          <span>${diary.destination}</span>
+          <strong>${round(diary.rating || 0)} 分</strong>
+        </div>
+        <h3>${diary.title}</h3>
+        <p>${diary.content}</p>
+        <div class="tag-row">
+          ${(diary.interestTags || "").split(/[，,\s]+/).filter(Boolean).slice(0, 5).map((tag) => `<span class="mini-tag">${tag}</span>`).join("")}
+        </div>
+        <div class="diary-meta">
+          <span>${diary.authorName || "游客"}</span>
+          <span>${formatDateTime(diary.createTime)}</span>
+          <span>浏览 ${diary.viewCount}</span>
+          <span>${compressionText(diary)}</span>
+        </div>
+        <div class="rate-buttons">
+          <button type="button" data-open-detail="true">查看全文</button>
+          <button type="button" data-open-animation="true">生成动画</button>
+          <button type="button" data-rating="5">5 分</button>
+          <button type="button" data-rating="4">4 分</button>
+          <button type="button" data-rating="3">3 分</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function showDiaryDetail(diary) {
+  let modal = $("#diary-detail-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "diary-detail-modal";
+    modal.className = "diary-modal";
+    document.body.appendChild(modal);
+  }
+  const image = diary.imageUrl || "https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=900&q=80";
+  modal.innerHTML = `
+    <div class="diary-modal-backdrop" data-close-diary="true"></div>
+    <article class="diary-modal-card">
+      <button class="diary-modal-close" type="button" data-close-diary="true">关闭</button>
+      <div class="diary-modal-image" style="background-image:url('${image}')"></div>
+      <div class="diary-modal-body">
+        <p class="eyebrow">${diary.destination}</p>
+        <h2>${escapeHtml(diary.title)}</h2>
+        <div class="diary-meta">
+          <span>${escapeHtml(diary.authorName || "游客")}</span>
+          <span>${formatDateTime(diary.createTime)}</span>
+          <span>浏览 ${diary.viewCount}</span>
+          <span>评分 ${round(diary.rating || 0)}</span>
+          <span>${compressionText(diary)}</span>
+        </div>
+        <div class="tag-row">
+          ${(diary.interestTags || "").split(/[，,\s]+/).filter(Boolean).map((tag) => `<span class="mini-tag">${escapeHtml(tag)}</span>`).join("")}
+        </div>
+        ${renderCompressionPanel(diary)}
+        <p class="diary-full-content">${escapeHtml(diary.content)}</p>
+      </div>
+    </article>
+  `;
+  modal.querySelectorAll("[data-close-diary]").forEach((item) => {
+    item.addEventListener("click", () => modal.remove());
+  });
+}
+
+function showDiaryAnimation(diary) {
+  let modal = $("#diary-animation-modal");
+  if (!modal) {
+    modal = document.createElement("div");
+    modal.id = "diary-animation-modal";
+    modal.className = "diary-modal";
+    document.body.appendChild(modal);
+  }
+  const image = diary.imageUrl || "https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=900&q=80";
+  const captions = buildAnimationCaptions(diary);
+  modal.innerHTML = `
+    <div class="diary-modal-backdrop" data-close-animation="true"></div>
+    <article class="diary-modal-card animation-card">
+      <button class="diary-modal-close" type="button" data-close-animation="true">关闭</button>
+      <div class="aigc-animation-stage">
+        <div class="aigc-photo" style="background-image:url('${image}')"></div>
+        <div class="aigc-caption">
+          <p class="eyebrow">AIGC Travel Animation</p>
+          <h2>${escapeHtml(diary.title)}</h2>
+          <span>${escapeHtml(captions[0])}</span>
+          <span>${escapeHtml(captions[1])}</span>
+          <span>${escapeHtml(captions[2])}</span>
+        </div>
+      </div>
+      <div class="diary-modal-body">
+        <h2>照片生成旅行动画</h2>
+        <p class="muted-text">演示逻辑：系统读取日记图片、标题、目的地和兴趣标签，生成分镜文案，并对照片做自动运镜、缩放和字幕叠加，用于展示 AIGC 旅行影像生成流程。</p>
+        <div class="compression-panel">
+          <div><span>输入</span><strong>日记照片 + 文本</strong></div>
+          <div><span>生成</span><strong>3 段分镜</strong></div>
+          <div><span>效果</span><strong>自动运镜动画</strong></div>
+        </div>
+      </div>
+    </article>
+  `;
+  modal.querySelectorAll("[data-close-animation]").forEach((item) => {
+    item.addEventListener("click", () => modal.remove());
+  });
+}
+
+function previewUploadedAigcImage(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    $("#aigc-image-url").value = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function generateStandaloneAnimation() {
+  const place = $("#aigc-place")?.value.trim() || "旅行照片";
+  const style = $("#aigc-style")?.value.trim() || "旅行记录";
+  const imageUrl = $("#aigc-image-url")?.value.trim() || "https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=900&q=80";
+  showDiaryAnimation({
+    title: `${place} · 旅行照片动画`,
+    destination: place,
+    content: `根据上传照片识别旅行场景，结合${style}生成运镜、字幕和分镜节奏。`,
+    imageUrl,
+    interestTags: style,
+    authorName: "AIGC 演示",
+    viewCount: 0,
+    rating: 5,
+    compressedContent: "",
+  });
+}
+
+function buildAnimationCaptions(diary) {
+  const tags = (diary.interestTags || "").split(/[，,\s]+/).filter(Boolean);
+  return [
+    `${diary.destination} · ${tags.slice(0, 2).join(" / ") || "旅行记录"}`,
+    diary.content.slice(0, 38) + (diary.content.length > 38 ? "..." : ""),
+    "生成慢推、转场和字幕，形成旅行短片预览",
+  ];
+}
+
+function renderCompressionPanel(diary) {
+  const info = compressionInfo(diary);
+  return `
+    <div class="compression-panel">
+      <div><span>原文大小</span><strong>${info.originalBytes} B</strong></div>
+      <div><span>压缩后</span><strong>${info.compressedBytes} B</strong></div>
+      <div><span>压缩率</span><strong>${info.ratio}%</strong></div>
+      <div><span>算法</span><strong>GZIP 无损</strong></div>
+    </div>
+  `;
+}
+
+function compressionText(diary) {
+  const info = compressionInfo(diary);
+  return diary.compressedContent ? `压缩率 ${info.ratio}%` : "压缩字段未生成";
+}
+
+function compressionInfo(diary) {
+  const originalBytes = new Blob([diary.content || ""]).size;
+  const compressedBytes = diary.compressedContent
+    ? Math.max(1, Math.round(String(diary.compressedContent).length * 0.75))
+    : 0;
+  const ratio = originalBytes && compressedBytes
+    ? Math.max(1, Math.round((1 - compressedBytes / originalBytes) * 100))
+    : 0;
+  return { originalBytes, compressedBytes, ratio };
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function formatDateTime(value) {
+  if (!value) return "刚刚";
+  const normalized = Array.isArray(value)
+    ? new Date(value[0], (value[1] || 1) - 1, value[2] || 1, value[3] || 0, value[4] || 0)
+    : new Date(value);
+  if (Number.isNaN(normalized.getTime())) {
+    return String(value).replace("T", " ").slice(0, 16);
+  }
+  return `${normalized.getFullYear()}-${String(normalized.getMonth() + 1).padStart(2, "0")}-${String(normalized.getDate()).padStart(2, "0")} ${String(normalized.getHours()).padStart(2, "0")}:${String(normalized.getMinutes()).padStart(2, "0")}`;
+}
+
+async function initMapDemo() {
+  const state = {
+    areas: [],
+    area: null,
+    nodes: [],
+    edges: [],
+    path: null,
+    nearby: [],
+    foods: [],
+    areaRecommendations: [],
+    indoor: null,
+  };
+
+  await loadMapStats();
+  state.areas = await getJson(`${API_BASE}/map/areas?limit=200`, []);
+  const areaSelect = $("#map-area-select");
+  areaSelect.innerHTML = state.areas.map((area) => `<option value="${area.id}">${area.name} · ${area.areaType === "campus" ? "校园" : "景区"}</option>`).join("");
+
+  areaSelect.addEventListener("change", async () => {
+    await loadAreaMap(state, Number(areaSelect.value));
+  });
+  $("#path-distance")?.addEventListener("click", () => loadMapPath(state, "distance"));
+  $("#path-time")?.addEventListener("click", () => loadMapPath(state, "time"));
+  $("#path-transport")?.addEventListener("click", () => loadMapPath(state, "transport"));
+  $("#multi-distance")?.addEventListener("click", () => loadMultiStopPath(state, "distance"));
+  $("#multi-time")?.addEventListener("click", () => loadMultiStopPath(state, "time"));
+  $("#multi-transport")?.addEventListener("click", () => loadMultiStopPath(state, "transport"));
+  $("#indoor-search")?.addEventListener("click", () => loadIndoorPath(state));
+  $("#nearby-search")?.addEventListener("click", () => loadNearbyFacilities(state));
+  $("#food-search")?.addEventListener("click", () => loadFoodRecommendations(state));
+  $("#area-recommend-search")?.addEventListener("click", () => loadAreaRecommendations(state));
+
+  if (state.areas.length) {
+    await loadAreaMap(state, state.areas[0].id);
+    await loadAreaRecommendations(state);
+  } else {
+    renderMapDemoError("后端暂时没有返回区域数据，请确认服务已启动并导入 area_map_data.sql。");
+  }
+}
+
+async function loadMapStats() {
+  const stats = await getJson(`${API_BASE}/map/stats`, null);
+  const container = $("#map-stats");
+  if (!container) return;
+  if (!stats) {
+    container.innerHTML = `<p class="muted-text">后端未连接，启动服务后可查看数据规模。</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <div><span>区域</span><strong>${stats.areaCount}</strong></div>
+    <div><span>节点</span><strong>${stats.nodeCount}</strong></div>
+    <div><span>道路边</span><strong>${stats.edgeCount}</strong></div>
+    <div><span>设施类型</span><strong>${stats.facilityTypeCount}</strong></div>
+  `;
+}
+
+async function loadAreaMap(state, areaId) {
+  state.area = state.areas.find((area) => Number(area.id) === Number(areaId)) || null;
+  state.nodes = await getJson(`${API_BASE}/map/areas/${areaId}/nodes`, []);
+  state.edges = await getJson(`${API_BASE}/map/areas/${areaId}/edges`, []);
+  state.path = null;
+  state.nearby = [];
+  state.foods = [];
+  state.indoor = null;
+
+  const fromSelect = $("#map-from-node");
+  const toSelect = $("#map-to-node");
+  const buildingSelect = $("#indoor-building-node");
+  const coreNodes = state.nodes.filter((nodeItem) => nodeItem.nodeType !== "facility");
+  const buildingNodes = state.nodes.filter((nodeItem) => ["building", "scenic"].includes(nodeItem.nodeType));
+  const allOptions = state.nodes.map((nodeItem) => `<option value="${nodeItem.id}">${nodeItem.name} · ${nodeItem.category}</option>`).join("");
+  fromSelect.innerHTML = allOptions;
+  toSelect.innerHTML = allOptions;
+  if (buildingSelect) {
+    buildingSelect.innerHTML = buildingNodes.map((nodeItem) => `<option value="${nodeItem.id}">${nodeItem.name} · ${nodeItem.category}</option>`).join("");
+  }
+  fromSelect.value = String(coreNodes[0]?.id || state.nodes[0]?.id || "");
+  toSelect.value = String(coreNodes[Math.min(19, coreNodes.length - 1)]?.id || state.nodes[Math.min(19, state.nodes.length - 1)]?.id || "");
+  if (buildingSelect) {
+    buildingSelect.value = String(buildingNodes[0]?.id || coreNodes[0]?.id || state.nodes[0]?.id || "");
+  }
+  $("#map-target-nodes").value = coreNodes.slice(4, 7).map((nodeItem) => nodeItem.id).join(",");
+
+  $("#map-demo-title").textContent = state.area ? state.area.name : "内部道路图";
+  $("#map-demo-subtitle").textContent = `${state.nodes.length} 个节点 · ${state.edges.length} 条道路边`;
+  $("#path-result").innerHTML = `<p class="muted-text">选择起点和目标后，可以演示距离最短、时间最短或交通工具最快路线。</p>`;
+  $("#advanced-path-result").innerHTML = `<p class="muted-text">这里展示多点参观顺序、返回起点结果，以及室内导航步骤。</p>`;
+  $("#area-recommend-result").innerHTML = `<p class="muted-text">可按热度、评分或兴趣匹配推荐前 10 个景区/校园。</p>`;
+  $("#food-result").innerHTML = `<p class="muted-text">选择菜系、排序方式或关键词后，可推荐前 10 个美食点。</p>`;
+  $("#nearby-result").innerHTML = `<p class="muted-text">选择设施类别后，可以按内部道路距离查询最近设施。</p>`;
+  renderCampusMap(state);
+}
+
+async function loadMapPath(state, strategy) {
+  const areaId = $("#map-area-select").value;
+  const fromNodeId = $("#map-from-node").value;
+  const toNodeId = $("#map-to-node").value;
+  state.path = await getJson(`${API_BASE}/map/areas/${areaId}/path?fromNodeId=${fromNodeId}&toNodeId=${toNodeId}&strategy=${strategy}`, null);
+  state.indoor = null;
+  renderCampusMap(state);
+  renderPathResult(state.path);
+}
+
+async function loadMultiStopPath(state, strategy) {
+  const areaId = $("#map-area-select").value;
+  const startNodeId = $("#map-from-node").value;
+  const targetNodeIds = ($("#map-target-nodes").value || "").split(",").map((item) => item.trim()).filter(Boolean).join(",");
+  if (!targetNodeIds) {
+    $("#advanced-path-result").innerHTML = `<p class="muted-text">请先填写至少一个目标点 ID。</p>`;
+    return;
+  }
+  state.path = await getJson(`${API_BASE}/map/areas/${areaId}/multi-path?startNodeId=${startNodeId}&targetNodeIds=${targetNodeIds}&strategy=${strategy}`, null);
+  state.indoor = null;
+  renderCampusMap(state);
+  renderPathResult(state.path);
+  renderAdvancedPathResult(state.path, "multi");
+}
+
+async function loadIndoorPath(state) {
+  const areaId = $("#map-area-select").value;
+  const buildingNodeId = $("#indoor-building-node").value;
+  const fromRoom = encodeURIComponent($("#indoor-from-room").value || "入口");
+  const toRoom = encodeURIComponent($("#indoor-to-room").value || "305");
+  state.indoor = await getJson(`${API_BASE}/map/areas/${areaId}/indoor-path?buildingNodeId=${buildingNodeId}&fromRoom=${fromRoom}&toRoom=${toRoom}`, null);
+  renderAdvancedPathResult(state.indoor, "indoor");
+}
+
+async function loadNearbyFacilities(state) {
+  const areaId = $("#map-area-select").value;
+  const fromNodeId = $("#map-from-node").value;
+  const typedCategory = $("#facility-category-keyword")?.value.trim();
+  const category = encodeURIComponent(typedCategory || $("#facility-category").value || "all");
+  const limit = Number($("#facility-limit").value) || 10;
+  const radiusMeters = Number($("#facility-radius")?.value) || 800;
+  state.nearby = await getJson(`${API_BASE}/map/areas/${areaId}/nearby?fromNodeId=${fromNodeId}&category=${category}&limit=${limit}&radiusMeters=${radiusMeters}`, []);
+  renderCampusMap(state);
+  renderNearbyResult(state.nearby);
+}
+
+async function loadAreaRecommendations(state) {
+  const type = encodeURIComponent($("#area-recommend-type")?.value || "all");
+  const keyword = encodeURIComponent($("#area-recommend-keyword")?.value.trim() || "");
+  const interest = encodeURIComponent($("#area-recommend-interest")?.value.trim() || "");
+  const sort = encodeURIComponent($("#area-recommend-sort")?.value || "hot");
+  state.areaRecommendations = await getJson(`${API_BASE}/map/recommend-areas?type=${type}&keyword=${keyword}&interest=${interest}&sort=${sort}&limit=10`, []);
+  renderAreaRecommendationResult(state.areaRecommendations);
+}
+
+async function loadFoodRecommendations(state) {
+  const areaId = $("#map-area-select").value;
+  const fromNodeId = $("#map-from-node").value;
+  const cuisine = encodeURIComponent($("#food-cuisine").value || "");
+  const keyword = encodeURIComponent($("#food-keyword").value || "");
+  const sort = encodeURIComponent($("#food-sort").value || "hot");
+  state.foods = await getJson(`${API_BASE}/map/areas/${areaId}/foods?fromNodeId=${fromNodeId}&cuisine=${cuisine}&keyword=${keyword}&sort=${sort}&limit=10`, []);
+  renderCampusMap(state);
+  renderFoodResult(state.foods);
+}
+
+function renderCampusMap(state) {
+  const container = $("#campus-map");
+  if (!container) return;
+  if (!state.nodes.length) {
+    renderMapDemoError("没有可展示的节点数据。");
+    return;
+  }
+
+  const bounds = nodeBounds(state.nodes);
+  const pathEdgeIds = new Set((state.path?.edges || []).map((edge) => Number(edge.id)));
+  const pathNodeIds = new Set((state.path?.nodes || []).map((nodeItem) => Number(nodeItem.id)));
+  const nearbyNodeIds = new Set((state.nearby || []).map((item) => Number(item.node.id)));
+  const foodNodeIds = new Set((state.foods || []).map((item) => Number(item.node.id)));
+  const visibleEdges = state.edges.slice(0, 160);
+
+  container.innerHTML = `
+    <div class="campus-canvas">
+      ${visibleEdges.map((edge) => renderCampusEdge(edge, state.nodes, bounds, pathEdgeIds.has(Number(edge.id)))).join("")}
+      ${state.nodes.map((nodeItem) => renderCampusNode(nodeItem, bounds, pathNodeIds.has(Number(nodeItem.id)), nearbyNodeIds.has(Number(nodeItem.id)) || foodNodeIds.has(Number(nodeItem.id)))).join("")}
+      <div class="map-legend campus-legend">
+        <span><i></i>建筑/景点</span>
+        <span><i class="facility-dot"></i>服务设施</span>
+        <span><i class="path-dot"></i>路径/推荐</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderPathResult(path) {
+  const container = $("#path-result");
+  if (!container) return;
+  if (!path) {
+    container.innerHTML = `<p class="muted-text">没有找到可达路线，请换一个起终点。</p>`;
+    return;
+  }
+  const steps = path.steps || [];
+  container.innerHTML = `
+    <div class="path-summary">
+      <span>${strategyLabel(path.strategy)}</span>
+      <strong>${Math.round(path.totalDistance)} 米 · ${path.totalTime} 分钟</strong>
+    </div>
+    <ol class="path-steps">
+      ${steps.length ? steps.map((step) => `
+        <li>
+          <strong>${step.fromName} → ${step.toName}</strong>
+          <span>${transportLabel(step.transportMode)} · ${roadTypeLabel(step.roadType)} · ${Math.round(step.distance)} 米 · ${step.travelTime} 分钟 · 拥挤度 ${step.congestion}</span>
+          <small>${step.note}</small>
+        </li>
+      `).join("") : path.nodes.map((nodeItem) => `<li><strong>${nodeItem.name}</strong><span>${nodeItem.category}</span></li>`).join("")}
+    </ol>
+  `;
+}
+
+function renderAdvancedPathResult(result, type) {
+  const container = $("#advanced-path-result");
+  if (!container) return;
+  if (!result) {
+    container.innerHTML = `<p class="muted-text">暂时没有生成结果，请重新选择节点。</p>`;
+    return;
+  }
+  if (type === "indoor") {
+    container.innerHTML = `
+      <div class="path-summary">
+        <span>室内导航模拟</span>
+        <strong>${result.buildingName} · ${result.totalTime} 分钟</strong>
+      </div>
+      <ol class="path-steps">
+        ${result.steps.map((step) => `<li><strong>${step}</strong><span>${result.fromRoom} → ${result.toRoom}</span></li>`).join("")}
+      </ol>
+    `;
+    return;
+  }
+  const namesById = new Map((result.nodes || []).map((nodeItem) => [Number(nodeItem.id), nodeItem.name]));
+  container.innerHTML = `
+    <div class="path-summary">
+      <span>多点途经并返回起点 · ${strategyLabel(result.strategy)}</span>
+      <strong>${Math.round(result.totalDistance)} 米 · ${result.totalTime} 分钟</strong>
+    </div>
+    <ol class="path-steps">
+      ${(result.visitOrder || []).map((nodeId, index) => `
+        <li>
+          <strong>${index + 1}. ${namesById.get(Number(nodeId)) || `节点 ${nodeId}`}</strong>
+          <span>${index === 0 ? "当前位置" : index === result.visitOrder.length - 1 ? "返回起点" : "途经目标点"}</span>
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function renderFoodResult(items) {
+  const container = $("#food-result");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = `<p class="muted-text">没有找到匹配的美食，可以换个菜系或关键词。</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="path-summary">
+      <span>Top-K 推荐算法</span>
+      <strong>维护前 ${items.length} 个候选，不做全量排序</strong>
+    </div>
+    <ol class="facility-list food-list">
+      ${items.map((item, index) => `
+        <li>
+          <strong>${index + 1}. ${item.restaurantName}</strong>
+          <span>${item.cuisine} · ${item.signatureDish} · ${item.windowName}</span>
+          <span>热度 ${item.popularity} · 评分 ${item.rating} · ${Math.round(item.roadDistance)} 米 · ${item.travelTime} 分钟</span>
+          <small>${item.sortReason} · 模糊匹配分 ${item.matchScore}</small>
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function renderAreaRecommendationResult(items) {
+  const container = $("#area-recommend-result");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = `<p class="muted-text">没有找到匹配的景区或校园，可以换个关键词。</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="path-summary">
+      <span>推荐 Top 10</span>
+      <strong>热度、评分、兴趣匹配可切换</strong>
+    </div>
+    <ol class="facility-list">
+      ${items.map((item, index) => `
+        <li>
+          <strong>${index + 1}. ${item.area.name}</strong>
+          <span>${item.typeLabel} · ${item.area.city}${item.area.district ? " · " + item.area.district : ""}</span>
+          <span>热度 ${item.popularity} · 评分 ${item.rating} · 匹配 ${item.matchScore}</span>
+          <small>${item.reason}</small>
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function renderNearbyResult(items) {
+  const container = $("#nearby-result");
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML = `<p class="muted-text">当前范围内没有找到该类设施。</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <ol class="facility-list">
+      ${items.map((item) => `
+        <li>
+          <strong>${item.node.name}</strong>
+          <span>${item.category} · ${Math.round(item.roadDistance)} 米 · ${item.travelTime} 分钟</span>
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function strategyLabel(strategy) {
+  if (strategy === "time") return "时间最短：按拥挤度修正后的真实速度";
+  if (strategy === "transport") return "交通工具最快：步行 + 可用车辆混合";
+  return "距离最短：道路距离最小";
+}
+
+function roadTypeLabel(roadType) {
+  const labels = {
+    walkway: "步道",
+    main_road: "主路",
+    branch_road: "支路",
+    greenway: "绿道",
+    covered_walkway: "连廊",
+    stairs: "台阶",
+  };
+  return labels[roadType] || roadType || "道路";
+}
+
+function transportLabel(mode) {
+  const labels = {
+    walk: "步行",
+    bicycle: "自行车",
+    electric_cart: "电瓶车",
+  };
+  return labels[mode] || mode || "步行";
 }
 
 function ensurePlan() {
@@ -506,14 +1164,17 @@ function generateMockPlan(inputDemand, options = {}) {
     .map((item) => ({ spot: item, score: scoreSpot(item, demand), reason: reasonSpot(item, demand) }))
     .sort((a, b) => b.score - a.score || b.spot.popularity - a.spot.popularity);
   const maxSpots = demand.pace === "compact" ? 4 : demand.pace === "relaxed" ? 2 : 3;
-  const selected = candidates.slice(0, Math.max(demand.days * 2, demand.days * maxSpots - 1));
+  const selected = selectMockSpotsByBudget(candidates, demand, maxSpots, options);
   const days = Array.from({ length: demand.days }, (_, index) => ({ dayNo: index + 1, items: [] }));
   selected.forEach((item, index) => {
     if (days[index % days.length].items.length < maxSpots) days[index % days.length].items.push(item);
   });
 
   const plannedDays = days.map((day) => buildMockDay(day, demand));
-  const totalCost = selected.reduce((sum, item) => sum + item.spot.ticketPrice, 0) + plannedDays.reduce((sum, day) => sum + Math.round(day.travelMinutes * 0.8), 0) + demand.days * 220;
+  const totalTicket = selected.reduce((sum, item) => sum + item.spot.ticketPrice, 0);
+  const localSpend = selected.reduce((sum, item) => sum + estimatedMockLocalSpend(item.spot, demand), 0);
+  const transportCost = plannedDays.reduce((sum, day) => sum + Math.round(day.travelMinutes * mockTransportRate(demand)), 0);
+  const totalCost = totalTicket + localSpend + transportCost + demand.days * mockDailyBaseSpend(demand);
   const totalHours = plannedDays.reduce((sum, day) => sum + day.totalHours, 0);
   const match = selected.length ? Math.round((selected.reduce((sum, item) => sum + item.score, 0) / selected.length) * 100) : 0;
   const restCount = plannedDays.flatMap((day) => day.nodes).filter((nodeItem) => nodeItem.isRecoveryNode).length;
@@ -526,10 +1187,117 @@ function generateMockPlan(inputDemand, options = {}) {
     totalHours: round(totalHours),
     match,
     summary: `${demand.destination}${demand.days}日路线：安排 ${selected.length} 个主要地点，穿插 ${restCount} 个中途休息点。`,
-    explanations: ["优先把想玩的地方串起来，再根据步行、排队和当天节奏插入休息。"],
+    explanations: [
+      "优先把想玩的地方串起来，再根据步行、排队和当天节奏插入休息。",
+      `当前预算为 ${demand.budget} 元，已按${budgetTierLabel(demand)}控制景点数量、门票、餐饮和交通估算。`,
+    ],
     parentPlanId: options.parentPlanId || null,
     versionNo: (options.versionNo || 0) + 1,
   };
+}
+
+function selectMockSpotsByBudget(candidates, demand, maxSpots, options = {}) {
+  const targetCount = mockBudgetSpotLimit(demand, maxSpots);
+  const fixedCost = demand.days * mockDailyBaseSpend(demand);
+  const softLimit = Math.max(80, demand.budget - fixedCost);
+  const ordered = [...candidates].sort((a, b) => budgetValue(b, demand) - budgetValue(a, demand));
+  const selected = [];
+  let estimatedCost = 0;
+
+  ordered.forEach((item) => {
+    if (selected.length >= targetCount) return;
+    const cost = estimatedMockSpotCost(item.spot, demand);
+    const mustKeep = Number(options.mustSpotId) === item.spot.id;
+    if (mustKeep || estimatedCost + cost <= softLimit) {
+      selected.push(item);
+      estimatedCost += cost;
+    }
+  });
+
+  const minimum = Math.min(candidates.length, mockMinimumSpotCount(demand));
+  ordered.forEach((item) => {
+    if (selected.length >= minimum) return;
+    if (!selected.some((existing) => existing.spot.id === item.spot.id)) selected.push(item);
+  });
+
+  return selected.sort((a, b) => b.score - a.score || b.spot.popularity - a.spot.popularity);
+}
+
+function mockBudgetSpotLimit(demand, maxSpots) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  if (demand.budget < 500) return 1;
+  if (demand.budget < 900) return Math.max(1, demand.days);
+  if (dayBudget < 450) return Math.max(1, demand.days * 2);
+  if (dayBudget < 700) return demand.days * Math.min(3, maxSpots);
+  if (dayBudget > 1200) return demand.days * maxSpots + Math.max(1, demand.days - 1);
+  return Math.max(demand.days * 2, demand.days * maxSpots - 1);
+}
+
+function mockMinimumSpotCount(demand) {
+  if (demand.budget < 500) return 1;
+  if (demand.budget < 900) return Math.max(1, demand.days);
+  return Math.max(1, demand.days * 2);
+}
+
+function budgetValue(item, demand) {
+  return item.score / Math.max(estimatedMockSpotCost(item.spot, demand), 30);
+}
+
+function estimatedMockSpotCost(item, demand) {
+  return item.ticketPrice + estimatedMockLocalSpend(item, demand) + mockMoveCost(demand);
+}
+
+function estimatedMockLocalSpend(item, demand) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  const factor = demand.budget < 500 ? 0.35 : dayBudget < 300 ? 0.55 : dayBudget < 450 ? 0.72 : dayBudget < 700 ? 0.92 : dayBudget > 1200 ? 1.28 : 1;
+  return Math.round(baseMockSpend(item) * factor);
+}
+
+function baseMockSpend(item) {
+  const text = `${item.category || ""} ${(item.tags || []).join(" ")}`;
+  if (text.includes("美食")) return 100;
+  if (text.includes("茶馆") || text.includes("咖啡")) return 55;
+  if (text.includes("购物") || text.includes("商圈")) return 120;
+  if (text.includes("博物馆") || text.includes("历史")) return 45;
+  if (text.includes("公园") || text.includes("休闲")) return 30;
+  return 35;
+}
+
+function mockDailyBaseSpend(demand) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  if (demand.budget < 500) return 35;
+  if (dayBudget < 300) return 65;
+  if (dayBudget < 450) return 70;
+  if (dayBudget < 700) return 110;
+  if (dayBudget > 1200) return 190;
+  return 140;
+}
+
+function mockMoveCost(demand) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  if (demand.budget < 500) return 8;
+  if (dayBudget < 300) return 12;
+  return dayBudget < 450 ? 18 : 32;
+}
+
+function mockTransportRate(demand) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  if (demand.budget < 500) return 0.2;
+  if (dayBudget < 300) return 0.35;
+  if (dayBudget < 450) return 0.45;
+  if (dayBudget < 700) return 0.62;
+  if (dayBudget > 1200) return 0.95;
+  return 0.78;
+}
+
+function budgetTierLabel(demand) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  if (demand.budget < 500) return "极简预算";
+  if (demand.budget < 900) return "经济型预算";
+  if (dayBudget < 450) return "经济型预算";
+  if (dayBudget < 700) return "均衡型预算";
+  if (dayBudget > 1200) return "舒适型预算";
+  return "标准预算";
 }
 
 function buildMockDay(day, demand) {
@@ -640,17 +1408,27 @@ function allNodes(plan) {
 
 function scoreSpot(item, demand) {
   const matched = demand.interests.filter((interest) => item.tags?.includes(interest)).length / Math.max(demand.interests.length, 1);
-  const budget = item.ticketPrice <= demand.budget / Math.max(demand.days, 1) / 2 ? 1 : 0.65;
+  const budget = mockBudgetScore(item, demand);
   let penalty = 0;
   if (demand.walkingTolerance === "low") penalty += item.physicalLoad * 0.1;
   if (demand.crowdSensitivity === "high") penalty += (item.crowdLoad + item.queueLoad) * 0.08;
   if (demand.comfortPreference === "comfort") penalty += (item.physicalLoad + item.cognitiveLoad + item.crowdLoad + item.queueLoad) * 0.03;
-  return Math.max(0.2, Math.min(0.99, matched * 0.52 + (item.popularity / 100) * 0.24 + budget * 0.16 - penalty));
+  return Math.max(0.2, Math.min(0.99, matched * 0.48 + (item.popularity / 100) * 0.18 + budget * 0.26 - penalty));
 }
 
 function reasonSpot(item, demand) {
   const matched = demand.interests.filter((interest) => item.tags?.includes(interest));
-  return matched.length ? `符合你想看的 ${matched.join("、")}，并且适合放进这趟路线。` : "作为同城补充地点，让路线更完整。";
+  const budgetText = mockBudgetScore(item, demand) >= 0.8 ? "预计花费符合预算" : "预计花费偏高，已降低排序";
+  return matched.length ? `符合你想看的 ${matched.join("、")}，${budgetText}。` : `作为同城补充地点，${budgetText}。`;
+}
+
+function mockBudgetScore(item, demand) {
+  const dayBudget = demand.budget / Math.max(demand.days, 1);
+  const visitCost = estimatedMockSpotCost(item, demand);
+  if (visitCost <= dayBudget * 0.18) return 1;
+  if (visitCost <= dayBudget * 0.3) return 0.82;
+  if (visitCost <= dayBudget * 0.45) return 0.62;
+  return 0.36;
 }
 
 function displaySpotReason(item, demand) {
